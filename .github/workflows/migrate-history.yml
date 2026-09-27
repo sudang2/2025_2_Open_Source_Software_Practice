@@ -1,0 +1,72 @@
+name: One-time history migration
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.event.head_commit.message == 'Run full history migration'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rewrite and merge source histories
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          python -m pip install --disable-pip-version-check git-filter-repo
+
+          repos=(
+            "Assignment_10"
+            "Assignment_12"
+            "SWE_2021_41_2025_2_week_1"
+            "SWE_2021_41_2025_2_week_2"
+            "SWE_2021_41_2025_2_week_3"
+            "SWE_2021_41_2025_2_week_4"
+            "SWE_2021_41_2025_2_week_5"
+            "SWE_2021_41_2025_2_week_7"
+            "SWE_2021_41_2025_2_week_9"
+            "SWE_2021_41_2025_2_week_11"
+          )
+
+          mkdir -p "$RUNNER_TEMP/history-migration"
+
+          i=0
+          for repo in "${repos[@]}"; do
+            src="$RUNNER_TEMP/history-migration/$repo"
+            echo "::group::Migrating $repo"
+
+            git clone --branch main --single-branch "https://github.com/sudang2/$repo.git" "$src"
+            (
+              cd "$src"
+              git filter-repo --to-subdirectory-filter "$repo" --force
+            )
+
+            remote="source$i"
+            git remote add "$remote" "$src"
+            git fetch "$remote" main
+            git merge --allow-unrelated-histories --no-ff -m "Merge rewritten history: $repo" "$remote/main"
+            git remote remove "$remote"
+
+            echo "::endgroup::"
+            i=$((i + 1))
+          done
+
+          rm -f .github/workflows/migrate-history.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git add -A
+          git commit -m "Complete history migration"
+
+          git push origin main
